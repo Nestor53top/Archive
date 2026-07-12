@@ -23,24 +23,30 @@ jobs:
           dotnet tool install --global ilspycmd
           sudo apt-get update && sudo apt-get install -y p7zip-full binwalk
 
-      - name: Extract nupkg from installer
+      - name: Extract nupkg
         run: |
           mkdir -p DualSenseX_Reverse/Extracted
           mkdir -p DualSenseX_Reverse/Source
           
-          # binwalk found a ZIP at offset 0xE3B707 (14923527)
-          echo "=== Extracting nupkg from setup.exe ==="
-          dd if=DualSenseX_Reverse/DualSenseX-Setup.exe bs=1 skip=14923527 of=DualSenseX_Reverse/Extracted/DualSenseX.nupkg
+          # Use binwalk to extract embedded ZIP
+          binwalk -e -C DualSenseX_Reverse/Extracted DualSenseX_Reverse/DualSenseX-Setup.exe
           
-          echo "=== Extracting nupkg ==="
-          7z x DualSenseX_Reverse/Extracted/DualSenseX.nupkg -oDualSenseX_Reverse/Extracted/nupkg -y
+          echo "=== Extracted files ==="
+          find DualSenseX_Reverse/Extracted -type f | sort
           
-          echo "=== Contents of nupkg ==="
-          find DualSenseX_Reverse/Extracted/nupkg -type f -name "*.exe" -o -name "*.dll" | sort
+          # Find the nupkg
+          find DualSenseX_Reverse/Extracted -name "*nupkg*" -o -name "*.zip" | while read f; do
+            echo "=== Found archive: $f ==="
+            mkdir -p DualSenseX_Reverse/Extracted/nupkg
+            7z x "$f" -oDualSenseX_Reverse/Extracted/nupkg -y 2>&1 || echo "Failed to extract: $f"
+          done
+          
+          echo "=== All .exe and .dll ==="
+          find DualSenseX_Reverse/Extracted \( -name "*.exe" -o -name "*.dll" \) | sort
 
       - name: Decompile all .NET assemblies
         run: |
-          for f in $(find DualSenseX_Reverse/Extracted/nupkg \( -name "*.exe" -o -name "*.dll" \) | sort); do
+          for f in $(find DualSenseX_Reverse/Extracted \( -name "*.exe" -o -name "*.dll" \) | sort); do
             bn=$(basename "$f")
             name="${bn%.*}"
             dir="DualSenseX_Reverse/Source/${name}"
