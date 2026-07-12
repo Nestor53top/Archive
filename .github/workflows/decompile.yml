@@ -18,54 +18,54 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Install ilspycmd
-        run: dotnet tool install --global ilspycmd
+      - name: Install tools
+        run: |
+          dotnet tool install --global ilspycmd
+          sudo apt-get update && sudo apt-get install -y p7zip-full binutils
 
-      - name: Install 7zip
-        run: sudo apt-get update && sudo apt-get install -y p7zip-full
-
-      - name: Extract installer (deep)
+      - name: Extract Squirrel installer
         run: |
           mkdir -p DualSenseX_Reverse/Extracted
-          # First pass
+          
+          # Extract the setup exe (Squirrel wraps the app)
           7z x DualSenseX_Reverse/DualSenseX-Setup.exe -oDualSenseX_Reverse/Extracted -y
-          echo "=== After first pass ==="
-          find DualSenseX_Reverse/Extracted -type f | head -50
           
-          # Second pass - extract any nested archives
-          find DualSenseX_Reverse/Extracted -name "*.exe" -o -name "*.dll" -o -name "*.7z" -o -name "*.zip" -o -name "*.rar" | while read f; do
-            echo "=== Checking: $f ==="
-            file "$f" 2>/dev/null || true
-          done
+          # Also try extracting embedded resources with objdump
+          echo "=== PE sections of DualSenseX-Setup.exe ==="
+          objdump -h DualSenseX_Reverse/DualSenseX-Setup.exe 2>/dev/null || true
           
-          # Try extracting Update.exe as archive
-          mkdir -p DualSenseX_Reverse/Extracted2
-          7z x DualSenseX_Reverse/Extracted/Update.exe -oDualSenseX_Reverse/Extracted2 -y 2>&1 || echo "Not an archive"
-          echo "=== After second pass ==="
-          find DualSenseX_Reverse/Extracted2 -type f | head -50
+          # List all files
+          echo "=== All extracted files ==="
+          find DualSenseX_Reverse/Extracted -type f -exec ls -lh {} \;
 
-      - name: Decompile all assemblies
+      - name: Decompile Update.exe
         run: |
           mkdir -p DualSenseX_Reverse/Source
-          for f in $(find DualSenseX_Reverse/Extracted DualSenseX_Reverse/Extracted2 \( -name "*.exe" -o -name "*.dll" \) 2>/dev/null | sort); do
-            bn=$(basename "$f")
-            name="${bn%.*}"
-            dir="DualSenseX_Reverse/Source/${name}"
-            mkdir -p "$dir"
-            echo "=== Decompiling: $f ==="
-            ilspycmd -p -o "$dir" "$f" 2>&1 && echo "OK" || echo "FAILED"
+          echo "=== Decompiling Update.exe ==="
+          ilspycmd -p -o DualSenseX_Reverse/Source/Update DualSenseX_Reverse/Extracted/Update.exe 2>&1 || echo "FAILED"
+          
+          # Also decompile setup.exe itself
+          echo "=== Decompiling Setup.exe ==="
+          ilspycmd -p -o DualSenseX_Reverse/Source/Setup DualSenseX_Reverse/DualSenseX-Setup.exe 2>&1 || echo "FAILED: Setup.exe is not .NET"
+
+      - name: Find any other .NET assemblies
+        run: |
+          # Search for any .dll files that might have been missed
+          find DualSenseX_Reverse -name "*.dll" -o -name "*.exe" | while read f; do
+            echo "=== Checking: $f ==="
+            ilspycmd --list "$f" 2>/dev/null && echo "  -> .NET assembly" || echo "  -> Not .NET"
           done
 
       - name: Clean
         run: |
-          find DualSenseX_Reverse/Source -type d -empty -delete 2>/dev/null
-          echo "=== Final structure ==="
-          ls DualSenseX_Reverse/Source/
+          find DualSenseX_Reverse/Source -type d -empty -delete 2>/dev/null || true
+          echo "=== Final Source structure ==="
+          ls -la DualSenseX_Reverse/Source/
 
       - name: Commit
         run: |
           git config user.name "Nestor53top"
           git config user.email "varlamovnestor90@gmail.com"
           git add DualSenseX_Reverse/Source/
-          git diff --cached --quiet || git commit -m "Decompiled source from DualSenseX-Setup.exe (deep extract)"
+          git diff --cached --quiet || git commit -m "Decompiled source from DualSenseX-Setup.exe"
           git push
