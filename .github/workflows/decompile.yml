@@ -1,0 +1,31 @@
+name: Decompile DualSenseX
+
+on:
+  workflow_dispatch:
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install ilspycmd
+        run: dotnet tool install --global ilspycmd
+
+      - name: Decompile
+        run: |
+          ilspycmd -p -o DualSenseX_Reverse/Source DualSenseX_Reverse/DualSenseX-Setup.exe
+
+      - name: Commit
+        run: |
+          git config user.name "Nestor53top"
+          git config user.email "varlamovnestor90@gmail.com"
+          git add DualSenseX_Reverse/Source/
+          git diff --cached --quiet || git commit -m "Add decompiled source from DualSenseX-Setup.exe"
+          git push
