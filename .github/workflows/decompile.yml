@@ -21,28 +21,80 @@ jobs:
       - name: Install tools
         run: |
           dotnet tool install --global ilspycmd
-          sudo apt-get update && sudo apt-get install -y p7zip-full binwalk
+          sudo apt-get update && sudo apt-get install -y p7zip-full python3
 
-      - name: Extract nupkg
+      - name: Extract nupkg using Python
         run: |
           mkdir -p DualSenseX_Reverse/Extracted
           mkdir -p DualSenseX_Reverse/Source
           
-          # Use binwalk to extract embedded ZIP
-          binwalk -e -C DualSenseX_Reverse/Extracted DualSenseX_Reverse/DualSenseX-Setup.exe
+          python3 << 'PYEOF'
+          import struct, os
           
-          echo "=== Extracted files ==="
-          find DualSenseX_Reverse/Extracted -type f | sort
+          with open("DualSenseX_Reverse/DualSenseX-Setup.exe", "rb") as f:
+              data = f.read()
           
-          # Find the nupkg
-          find DualSenseX_Reverse/Extracted -name "*nupkg*" -o -name "*.zip" | while read f; do
-            echo "=== Found archive: $f ==="
-            mkdir -p DualSenseX_Reverse/Extracted/nupkg
-            7z x "$f" -oDualSenseX_Reverse/Extracted/nupkg -y 2>&1 || echo "Failed to extract: $f"
-          done
+          # Find all PK signatures (ZIP start)
+          pk_offsets = []
+          i = 0
+          while True:
+              idx = data.find(b'PK\x03\x04', i)
+              if idx == -1:
+                  break
+              pk_offsets.append(idx)
+              i = idx + 1
           
-          echo "=== All .exe and .dll ==="
-          find DualSenseX_Reverse/Extracted \( -name "*.exe" -o -name "*.dll" \) | sort
+          print(f"Found {len(pk_offsets)} PK signatures")
+          
+          # Find end of central directory to get the correct ZIP start
+          eocd_sig = b'PK\x05\x06'
+          eocd_pos = data.rfind(eocd_sig)
+          print(f"EOCD at: {eocd_pos} (0x{eocd_pos:X})")
+          
+          if eocd_pos != -1:
+              # Parse EOCD to get central dir offset
+              cd_offset = struct.unpack_from('<I', data, eocd_pos + 16)[0]
+              print(f"Central directory offset: {cd_offset} (0x{cd_offset:X})")
+              
+              # Find the PK signature before the central directory
+              best_offset = None
+              for off in reversed(pk_offsets):
+                  if off <= cd_offset:
+                      best_offset = off
+                      break
+              
+              if best_offset is not None:
+                  print(f"Extracting ZIP from offset: {best_offset} (0x{best_offset:X})")
+                  nupkg_data = data[best_offset:]
+                  os.makedirs("DualSenseX_Reverse/Extracted", exist_ok=True)
+                  with open("DualSenseX_Reverse/Extracted/DualSenseX.nupkg", "wb") as out:
+                      out.write(nupkg_data)
+                  print(f"Written {len(nupkg_data)} bytes")
+              else:
+                  print("Could not find ZIP start before central directory")
+          else:
+              print("No EOCD found - trying all PK offsets")
+              for off in pk_offsets:
+                  print(f"  PK at 0x{off:X}")
+          
+          PYEOF
+
+      - name: Extract nupkg
+        run: |
+          if [ -f DualSenseX_Reverse/Extracted/DualSenseX.nupkg ]; then
+            echo "=== Extracting nupkg ==="
+            7z x DualSenseX_Reverse/Extracted/DualSenseX.nupkg -oDualSenseX_Reverse/Extracted/nupkg -y
+            echo "=== Contents ==="
+            find DualSenseX_Reverse/Extracted/nupkg \( -name "*.exe" -o -name "*.dll" \) | sort
+          else
+            echo "nupkg not found, trying all zip files"
+            find DualSenseX_Reverse/Extracted -name "*.zip" | while read f; do
+              echo "=== Extracting: $f ==="
+              mkdir -p DualSenseX_Reverse/Extracted/nupkg
+              7z x "$f" -oDualSenseX_Reverse/Extracted/nupkg -y
+            done
+            find DualSenseX_Reverse/Extracted/nupkg \( -name "*.exe" -o -name "*.dll" \) | sort
+          fi
 
       - name: Decompile all .NET assemblies
         run: |
