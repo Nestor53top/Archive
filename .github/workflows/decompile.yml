@@ -13,90 +13,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: Install tools
+      - name: Clone DualSenseX source
         run: |
-          dotnet tool install --global ilspycmd
-          sudo apt-get update && sudo apt-get install -y p7zip-full python3 icoutils
+          git clone https://github.com/Paliverse/DualSenseX.git DualSenseX_Reverse/Source_repo
 
-      - name: Extract and analyze
+      - name: Find C# source files
         run: |
-          mkdir -p DualSenseX_Reverse/Extracted
           mkdir -p DualSenseX_Reverse/Source
+          find DualSenseX_Reverse/Source_repo -name "*.cs" | head -5
+          echo "---"
+          ls DualSenseX_Reverse/Source_repo/
           
-          # Try to extract PE resources with wrestool
-          echo "=== Extracting PE resources ==="
-          wrestool -x -o DualSenseX_Reverse/Extracted/resources DualSenseX_Reverse/DualSenseX-Setup.exe 2>&1 || echo "wrestool failed"
-          find DualSenseX_Reverse/Extracted/resources -type f | head -20
+          # Copy the source into Source folder
+          cp -r DualSenseX_Reverse/Source_repo/* DualSenseX_Reverse/Source/ 2>/dev/null || true
           
-          # Try to find nupkg in the PE data directory using Python
-          python3 << 'PYEOF'
-          import struct, os, io, zipfile
+          # Remove .git and other non-source files
+          rm -rf DualSenseX_Reverse/Source/.git 2>/dev/null || true
           
-          with open("DualSenseX_Reverse/DualSenseX-Setup.exe", "rb") as f:
-              data = f.read()
-          
-          # Search for nupkg entries pattern: lib/net45/
-          pattern = b"lib/net45/"
-          pos = 0
-          found = []
-          while True:
-              idx = data.find(pattern, pos)
-              if idx == -1:
-                  break
-              found.append(idx)
-              pos = idx + 1
-          
-          print(f"Found 'lib/net45/' at {len(found)} positions")
-          for p in found[:5]:
-              print(f"  0x{p:X}: {data[p:p+40]}")
-          
-          # The nupkg is likely at the very beginning of the PE overlay
-          # After PE headers. Let's check for ZIP at various positions around the first lib/net45
-          if found:
-              first_nupkg_ref = found[0]
-              # Search backwards for PK header
-              search_start = max(0, first_nupkg_ref - 1000000)
-              for i in range(search_start, first_nupkg_ref):
-                  if data[i:i+4] == b'PK\x03\x04':
-                      try:
-                          zf = zipfile.ZipFile(io.BytesIO(data[i:]))
-                          names = zf.namelist()
-                          if len(names) > 5:
-                              print(f"\nValid ZIP at 0x{i:X} with {len(names)} files")
-                              zf.extractall("DualSenseX_Reverse/Extracted/nupkg")
-                              print("Extracted!")
-                              break
-                      except:
-                          continue
-          
-          PYEOF
-
-      - name: Decompile all .NET assemblies
-        run: |
-          for f in $(find DualSenseX_Reverse/Extracted \( -name "*.exe" -o -name "*.dll" \) | sort); do
-            bn=$(basename "$f")
-            name="${bn%.*}"
-            dir="DualSenseX_Reverse/Source/${name}"
-            mkdir -p "$dir"
-            echo "=== Decompiling: $f ==="
-            ilspycmd -p -o "$dir" "$f" 2>&1 && echo "OK: $bn" || echo "FAILED: $bn"
-          done
-
-      - name: Clean
-        run: |
-          find DualSenseX_Reverse/Source -type d -empty -delete 2>/dev/null || true
-          echo "=== Final Source ==="
-          ls -la DualSenseX_Reverse/Source/
+          echo "=== Source structure ==="
+          find DualSenseX_Reverse/Source -name "*.cs" | wc -l
+          echo "C# files found"
+          ls DualSenseX_Reverse/Source/
 
       - name: Commit
         run: |
           git config user.name "Nestor53top"
           git config user.email "varlamovnestor90@gmail.com"
           git add DualSenseX_Reverse/Source/
-          git diff --cached --quiet || git commit -m "Decompiled source from DualSenseX-Setup.exe"
+          git diff --cached --quiet || git commit -m "Add DualSenseX source code (from GitHub repo)"
           git push
