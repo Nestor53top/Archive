@@ -12,74 +12,79 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          path: repo
 
       - name: Download DualSenseX release
         shell: pwsh
         run: |
           [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
           Invoke-WebRequest -Uri "https://github.com/Paliverse/DualSenseX/releases/download/1.4.9/DualSenseX-Setup.zip" -OutFile "DualSenseX-Setup.zip"
-          Expand-Archive -Path "DualSenseX-Setup.zip" -DestinationPath "DualSenseX_Extracted" -Force
+          Expand-Archive -Path "DualSenseX-Setup.zip" -DestinationPath "DualSenseR" -Force
 
       - name: Verify extraction
         shell: pwsh
         run: |
           Write-Host "=== Extracted files ==="
-          Get-ChildItem -Path "DualSenseX_Extracted" -Recurse | ForEach-Object {
-            Write-Host "$($_.FullName) ($($_.Length) bytes)"
+          Get-ChildItem -Path "DualSenseR" -Recurse | ForEach-Object {
+            Write-Host " ( bytes)"
           }
 
       - name: Rename DualSenseX to DualSenseR
         shell: pwsh
         run: |
-          # Replace strings inside text files
-          Get-ChildItem -Path "DualSenseX_Extracted" -Recurse -File | ForEach-Object {
+          # Replace strings inside text-based files
+          Get-ChildItem -Path "DualSenseR" -Recurse -File | ForEach-Object {
             try {
-              $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
-              $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-              if ($text -match 'DualSenseX') {
-                $text = $text -replace 'DualSenseX', 'DualSenseR'
-                $newBytes = [System.Text.Encoding]::UTF8.GetBytes($text)
-                [System.IO.File]::WriteAllBytes($_.FullName, $newBytes)
-                Write-Host "Replaced in: $($_.Name)"
+               = [System.IO.File]::ReadAllBytes(.FullName)
+               = [System.Text.Encoding]::UTF8.GetString()
+              if ( -match 'DualSenseX') {
+                 =  -replace 'DualSenseX', 'DualSenseR'
+                 = [System.Text.Encoding]::UTF8.GetBytes()
+                [System.IO.File]::WriteAllBytes(.FullName, )
+                Write-Host "Replaced in: "
               }
             } catch {
-              # Binary files - skip
+              # Binary files skip
             }
           }
 
           # Rename files
-          Get-ChildItem -Path "DualSenseX_Extracted" -Recurse -File | ForEach-Object {
-            $newName = $_.Name -replace 'DualSenseX', 'DualSenseR'
-            if ($newName -ne $_.Name) {
-              Rename-Item -Path $_.FullName -NewName $newName -Force
-              Write-Host "Renamed file: $($_.Name) -> $newName"
+          Get-ChildItem -Path "DualSenseR" -Recurse -File | ForEach-Object {
+             = .Name -replace 'DualSenseX', 'DualSenseR'
+            if ( -ne .Name) {
+              Rename-Item -Path .FullName -NewName  -Force
+              Write-Host "Renamed file:  -> "
             }
           }
 
           # Rename directories (bottom-up)
-          Get-ChildItem -Path "DualSenseX_Extracted" -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object {
-            $newName = $_.Name -replace 'DualSenseX', 'DualSenseR'
-            if ($newName -ne $_.Name) {
-              Rename-Item -Path $_.FullName -NewName $newName -Force
-              Write-Host "Renamed dir: $($_.Name) -> $newName"
+          Get-ChildItem -Path "DualSenseR" -Recurse -Directory | Sort-Object { .FullName.Length } -Descending | ForEach-Object {
+             = .Name -replace 'DualSenseX', 'DualSenseR'
+            if ( -ne .Name) {
+              Rename-Item -Path .FullName -NewName  -Force
+              Write-Host "Renamed dir:  -> "
             }
           }
 
-      - name: Rename root folder
+      - name: Add renamed resources from repo
         shell: pwsh
         run: |
-          Rename-Item -Path "DualSenseX_Extracted" -NewName "DualSenseR" -Force
-          Write-Host "Root folder renamed to DualSenseR"
-          Get-ChildItem -Path "DualSenseR" | ForEach-Object {
-            Write-Host "  $($_.Name)"
+          # Copy localization files from repo
+          if (Test-Path "repo/DualSenseR/Localization") {
+            Copy-Item -Path "repo/DualSenseR/Localization\*" -Destination "DualSenseR\Localization\" -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          # Copy resources
+          if (Test-Path "repo/DualSenseR/Resources") {
+            Copy-Item -Path "repo/DualSenseR/Resources\*" -Destination "DualSenseR\Resources\" -Recurse -Force -ErrorAction SilentlyContinue
           }
 
       - name: Create zip artifact
         shell: pwsh
         run: |
           Compress-Archive -Path "DualSenseR\*" -DestinationPath "DualSenseR-v1.4.9.zip" -Force
-          $zip = Get-Item "DualSenseR-v1.4.9.zip"
-          Write-Host "Created: $($zip.Name) ($($zip.Length) bytes)"
+           = Get-Item "DualSenseR-v1.4.9.zip"
+          Write-Host "Created:  ( bytes)"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -97,7 +102,6 @@ jobs:
             ## DualSenseR v1.4.9
 
             Renamed fork of [DualSenseX](https://github.com/Paliverse/DualSenseX) v1.4.9.
-
             All references changed from DualSenseX to DualSenseR.
 
             ### Requirements
