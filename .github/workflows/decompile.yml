@@ -21,45 +21,59 @@ jobs:
       - name: Install tools
         run: |
           dotnet tool install --global ilspycmd
-          sudo apt-get update && sudo apt-get install -y p7zip-full binutils
+          sudo apt-get update && sudo apt-get install -y p7zip-full binwalk file
 
-      - name: Extract Squirrel installer
+      - name: Analyze installer
+        run: |
+          echo "=== File type ==="
+          file DualSenseX_Reverse/DualSenseX-Setup.exe
+          
+          echo "=== Strings looking for .NET ==="
+          strings DualSenseX_Reverse/DualSenseX-Setup.exe | grep -i "\.dll\|\.exe\|mscorlib\|System\.\|DualSense" | head -30
+          
+          echo "=== 7z detailed list ==="
+          7z l DualSenseX_Reverse/DualSenseX-Setup.exe 2>/dev/null | head -30
+
+      - name: Extract with different methods
         run: |
           mkdir -p DualSenseX_Reverse/Extracted
           
-          # Extract the setup exe (Squirrel wraps the app)
+          # Try Squirrel extraction (the installer might be Squirrel-based)
           7z x DualSenseX_Reverse/DualSenseX-Setup.exe -oDualSenseX_Reverse/Extracted -y
           
-          # Also try extracting embedded resources with objdump
-          echo "=== PE sections of DualSenseX-Setup.exe ==="
-          objdump -h DualSenseX_Reverse/DualSenseX-Setup.exe 2>/dev/null || true
-          
-          # List all files
-          echo "=== All extracted files ==="
+          echo "=== Extracted files ==="
           find DualSenseX_Reverse/Extracted -type f -exec ls -lh {} \;
+          
+          # Check if any of the extracted files are actually nested archives
+          find DualSenseX_Reverse/Extracted -type f | while read f; do
+            echo "--- $f ---"
+            file "$f"
+          done
 
-      - name: Decompile Update.exe
+      - name: Try binwalk extraction
+        run: |
+          mkdir -p DualSenseX_Reverse/BinwalkExtracted
+          binwalk -e -d 3 -C DualSenseX_Reverse/BinwalkExtracted DualSenseX_Reverse/DualSenseX-Setup.exe 2>&1 || echo "binwalk failed"
+          
+          echo "=== Binwalk results ==="
+          find DualSenseX_Reverse/BinwalkExtracted -type f -name "*.exe" -o -name "*.dll" -o -name "*.cs" | head -30
+
+      - name: Decompile all found .NET assemblies
         run: |
           mkdir -p DualSenseX_Reverse/Source
-          echo "=== Decompiling Update.exe ==="
-          ilspycmd -p -o DualSenseX_Reverse/Source/Update DualSenseX_Reverse/Extracted/Update.exe 2>&1 || echo "FAILED"
-          
-          # Also decompile setup.exe itself
-          echo "=== Decompiling Setup.exe ==="
-          ilspycmd -p -o DualSenseX_Reverse/Source/Setup DualSenseX_Reverse/DualSenseX-Setup.exe 2>&1 || echo "FAILED: Setup.exe is not .NET"
-
-      - name: Find any other .NET assemblies
-        run: |
-          # Search for any .dll files that might have been missed
-          find DualSenseX_Reverse -name "*.dll" -o -name "*.exe" | while read f; do
-            echo "=== Checking: $f ==="
-            ilspycmd --list "$f" 2>/dev/null && echo "  -> .NET assembly" || echo "  -> Not .NET"
+          for f in $(find DualSenseX_Reverse/Extracted DualSenseX_Reverse/BinwalkExtracted \( -name "*.exe" -o -name "*.dll" \) 2>/dev/null); do
+            bn=$(basename "$f")
+            name="${bn%.*}"
+            dir="DualSenseX_Reverse/Source/${name}"
+            mkdir -p "$dir"
+            echo "=== Decompiling: $f ==="
+            ilspycmd -p -o "$dir" "$f" 2>&1 && echo "OK: $bn" || echo "FAILED: $bn"
           done
 
       - name: Clean
         run: |
           find DualSenseX_Reverse/Source -type d -empty -delete 2>/dev/null || true
-          echo "=== Final Source structure ==="
+          echo "=== Final Source ==="
           ls -la DualSenseX_Reverse/Source/
 
       - name: Commit
