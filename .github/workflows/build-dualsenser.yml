@@ -25,66 +25,58 @@ jobs:
       - name: Verify extraction
         shell: pwsh
         run: |
-          Write-Host "=== Extracted files ==="
           Get-ChildItem -Path "DualSenseR" -Recurse | ForEach-Object {
-            Write-Host " ( bytes)"
+            Write-Host "$($_.FullName) ($($_.Length) bytes)"
           }
 
       - name: Rename DualSenseX to DualSenseR
         shell: pwsh
         run: |
-          # Replace strings inside text-based files
           Get-ChildItem -Path "DualSenseR" -Recurse -File | ForEach-Object {
             try {
-               = [System.IO.File]::ReadAllBytes(.FullName)
-               = [System.Text.Encoding]::UTF8.GetString()
-              if ( -match 'DualSenseX') {
-                 =  -replace 'DualSenseX', 'DualSenseR'
-                 = [System.Text.Encoding]::UTF8.GetBytes()
-                [System.IO.File]::WriteAllBytes(.FullName, )
-                Write-Host "Replaced in: "
+              $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+              $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+              if ($text -match 'DualSenseX') {
+                $text = $text -replace 'DualSenseX', 'DualSenseR'
+                $newBytes = [System.Text.Encoding]::UTF8.GetBytes($text)
+                [System.IO.File]::WriteAllBytes($_.FullName, $newBytes)
+                Write-Host "Replaced in: $($_.Name)"
               }
-            } catch {
-              # Binary files skip
-            }
+            } catch {}
           }
 
-          # Rename files
           Get-ChildItem -Path "DualSenseR" -Recurse -File | ForEach-Object {
-             = .Name -replace 'DualSenseX', 'DualSenseR'
-            if ( -ne .Name) {
-              Rename-Item -Path .FullName -NewName  -Force
-              Write-Host "Renamed file:  -> "
+            $newName = $_.Name -replace 'DualSenseX', 'DualSenseR'
+            if ($newName -ne $_.Name) {
+              Rename-Item -Path $_.FullName -NewName $newName -Force
+              Write-Host "Renamed file: $($_.Name) -> $newName"
             }
           }
 
-          # Rename directories (bottom-up)
-          Get-ChildItem -Path "DualSenseR" -Recurse -Directory | Sort-Object { .FullName.Length } -Descending | ForEach-Object {
-             = .Name -replace 'DualSenseX', 'DualSenseR'
-            if ( -ne .Name) {
-              Rename-Item -Path .FullName -NewName  -Force
-              Write-Host "Renamed dir:  -> "
+          Get-ChildItem -Path "DualSenseR" -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object {
+            $newName = $_.Name -replace 'DualSenseX', 'DualSenseR'
+            if ($newName -ne $_.Name) {
+              Rename-Item -Path $_.FullName -NewName $newName -Force
+              Write-Host "Renamed dir: $($_.Name) -> $newName"
             }
           }
 
       - name: Add renamed resources from repo
         shell: pwsh
         run: |
-          # Copy localization files from repo
           if (Test-Path "repo/DualSenseR/Localization") {
-            Copy-Item -Path "repo/DualSenseR/Localization\*" -Destination "DualSenseR\Localization\" -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item -Path "repo/DualSenseR/Localization/*" -Destination "DualSenseR/Localization/" -Recurse -Force -ErrorAction SilentlyContinue
           }
-          # Copy resources
           if (Test-Path "repo/DualSenseR/Resources") {
-            Copy-Item -Path "repo/DualSenseR/Resources\*" -Destination "DualSenseR\Resources\" -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item -Path "repo/DualSenseR/Resources/*" -Destination "DualSenseR/Resources/" -Recurse -Force -ErrorAction SilentlyContinue
           }
 
       - name: Create zip artifact
         shell: pwsh
         run: |
-          Compress-Archive -Path "DualSenseR\*" -DestinationPath "DualSenseR-v1.4.9.zip" -Force
-           = Get-Item "DualSenseR-v1.4.9.zip"
-          Write-Host "Created:  ( bytes)"
+          Compress-Archive -Path "DualSenseR/*" -DestinationPath "DualSenseR-v1.4.9.zip" -Force
+          $zip = Get-Item "DualSenseR-v1.4.9.zip"
+          Write-Host "Created: $($zip.Name) ($($zip.Length) bytes)"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -99,17 +91,7 @@ jobs:
           tag_name: v1.4.9
           name: DualSenseR v1.4.9
           body: |
-            ## DualSenseR v1.4.9
-
-            Renamed fork of [DualSenseX](https://github.com/Paliverse/DualSenseX) v1.4.9.
+            DualSenseR v1.4.9 - Renamed from DualSenseX
             All references changed from DualSenseX to DualSenseR.
-
-            ### Requirements
-            - Windows 10/11 (64-bit)
-            - [ViGEmBus Driver](https://github.com/ViGEm/ViGEmBus/releases/latest)
-            - [HidHide Driver](https://github.com/ViGEm/HidHide/releases/latest)
-
-            ### Credits
-            - Original: DualSenseX by Paliverse
           files: DualSenseR-v1.4.9.zip
           make_latest: true
