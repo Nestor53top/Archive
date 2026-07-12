@@ -15,12 +15,30 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Install ilspycmd
-        run: dotnet tool install --global ilspycmd
-
-      - name: Decompile
+      - name: Install tools
         run: |
-          ilspycmd -p -o DualSenseX_Reverse/Source DualSenseX_Reverse/DualSenseX-Setup.exe
+          sudo apt-get update && sudo apt-get install -y p7zip-full
+          dotnet tool install --global ilspycmd
+
+      - name: Extract installer
+        run: |
+          mkdir -p DualSenseX_Reverse/Extracted
+          cd DualSenseX_Reverse
+          7z x DualSenseX-Setup.exe -oExtracted -y
+
+      - name: Decompile all .NET assemblies
+        run: |
+          mkdir -p DualSenseX_Reverse/Source
+          find DualSenseX_Reverse/Extracted -name "*.exe" -o -name "*.dll" | while read f; do
+            echo "=== Trying: $f ==="
+            mkdir -p "DualSenseX_Reverse/Source/$(basename "$f" .exe)_src"
+            ilspycmd -p -o "DualSenseX_Reverse/Source/$(basename "$f" .exe)_src" "$f" 2>&1 || echo "FAILED: $f"
+          done
+
+      - name: Clean empty dirs
+        run: |
+          find DualSenseX_Reverse/Source -type d -empty -delete 2>/dev/null || true
+          ls -la DualSenseX_Reverse/Source/
 
       - name: Commit
         run: |
