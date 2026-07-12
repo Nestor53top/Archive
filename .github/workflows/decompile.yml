@@ -21,57 +21,58 @@ jobs:
       - name: Install tools
         run: |
           dotnet tool install --global ilspycmd
-          sudo apt-get update && sudo apt-get install -y p7zip-full python3
+          sudo apt-get update && sudo apt-get install -y p7zip-full python3 icoutils
 
-      - name: Extract nupkg with Python zipfile
+      - name: Extract and analyze
         run: |
-          mkdir -p DualSenseX_Reverse/Extracted/nupkg
+          mkdir -p DualSenseX_Reverse/Extracted
           mkdir -p DualSenseX_Reverse/Source
           
+          # Try to extract PE resources with wrestool
+          echo "=== Extracting PE resources ==="
+          wrestool -x -o DualSenseX_Reverse/Extracted/resources DualSenseX_Reverse/DualSenseX-Setup.exe 2>&1 || echo "wrestool failed"
+          find DualSenseX_Reverse/Extracted/resources -type f | head -20
+          
+          # Try to find nupkg in the PE data directory using Python
           python3 << 'PYEOF'
-          import zipfile, struct, io, os
+          import struct, os, io, zipfile
           
           with open("DualSenseX_Reverse/DualSenseX-Setup.exe", "rb") as f:
               data = f.read()
           
-          # Find the nupkg by searching for its name in the file
-          nupkg_name = b"DualSenseX-1.4.9-full.nupkg"
-          name_pos = data.find(nupkg_name)
-          print(f"nupkg name found at: {name_pos} (0x{name_pos:X})")
-          
-          # Find all PK local file headers and try each one
-          pk_sig = b'PK\x03\x04'
-          offsets = []
-          i = 0
+          # Search for nupkg entries pattern: lib/net45/
+          pattern = b"lib/net45/"
+          pos = 0
+          found = []
           while True:
-              idx = data.find(pk_sig, i)
+              idx = data.find(pattern, pos)
               if idx == -1:
                   break
-              offsets.append(idx)
-              i = idx + 1
+              found.append(idx)
+              pos = idx + 1
           
-          print(f"Found {len(offsets)} PK local file headers")
+          print(f"Found 'lib/net45/' at {len(found)} positions")
+          for p in found[:5]:
+              print(f"  0x{p:X}: {data[p:p+40]}")
           
-          # Try each offset to see if it's a valid nupkg
-          for off in offsets:
-              try:
-                  nupkg_data = data[off:]
-                  zf = zipfile.ZipFile(io.BytesIO(nupkg_data))
-                  names = zf.namelist()
-                  # Check if this looks like the nupkg (has lib/net45/DualSenseX.exe)
-                  if any('DualSenseX.exe' in n and 'net45' in n for n in names):
-                      print(f"Found nupkg at offset 0x{off:X} with {len(names)} files")
-                      for name in sorted(names):
-                          print(f"  {name}")
-                      # Extract it
-                      zf.extractall("DualSenseX_Reverse/Extracted/nupkg")
-                      print(f"Extracted to DualSenseX_Reverse/Extracted/nupkg")
-                      break
-                  zf.close()
-              except Exception as e:
-                  continue
-          else:
-              print("Could not find valid nupkg")
+          # The nupkg is likely at the very beginning of the PE overlay
+          # After PE headers. Let's check for ZIP at various positions around the first lib/net45
+          if found:
+              first_nupkg_ref = found[0]
+              # Search backwards for PK header
+              search_start = max(0, first_nupkg_ref - 1000000)
+              for i in range(search_start, first_nupkg_ref):
+                  if data[i:i+4] == b'PK\x03\x04':
+                      try:
+                          zf = zipfile.ZipFile(io.BytesIO(data[i:]))
+                          names = zf.namelist()
+                          if len(names) > 5:
+                              print(f"\nValid ZIP at 0x{i:X} with {len(names)} files")
+                              zf.extractall("DualSenseX_Reverse/Extracted/nupkg")
+                              print("Extracted!")
+                              break
+                      except:
+                          continue
           
           PYEOF
 
