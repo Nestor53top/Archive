@@ -24,19 +24,30 @@ jobs:
       - name: Install 7zip
         run: sudo apt-get update && sudo apt-get install -y p7zip-full
 
-      - name: Extract installer
+      - name: Extract installer (deep)
         run: |
           mkdir -p DualSenseX_Reverse/Extracted
+          # First pass
           7z x DualSenseX_Reverse/DualSenseX-Setup.exe -oDualSenseX_Reverse/Extracted -y
+          echo "=== After first pass ==="
+          find DualSenseX_Reverse/Extracted -type f | head -50
+          
+          # Second pass - extract any nested archives
+          find DualSenseX_Reverse/Extracted -name "*.exe" -o -name "*.dll" -o -name "*.7z" -o -name "*.zip" -o -name "*.rar" | while read f; do
+            echo "=== Checking: $f ==="
+            file "$f" 2>/dev/null || true
+          done
+          
+          # Try extracting Update.exe as archive
+          mkdir -p DualSenseX_Reverse/Extracted2
+          7z x DualSenseX_Reverse/Extracted/Update.exe -oDualSenseX_Reverse/Extracted2 -y 2>&1 || echo "Not an archive"
+          echo "=== After second pass ==="
+          find DualSenseX_Reverse/Extracted2 -type f | head -50
 
-      - name: List extracted
-        run: |
-          find DualSenseX_Reverse/Extracted -name "*.exe" -o -name "*.dll" | sort
-
-      - name: Decompile all
+      - name: Decompile all assemblies
         run: |
           mkdir -p DualSenseX_Reverse/Source
-          for f in $(find DualSenseX_Reverse/Extracted \( -name "*.exe" -o -name "*.dll" \) | sort); do
+          for f in $(find DualSenseX_Reverse/Extracted DualSenseX_Reverse/Extracted2 \( -name "*.exe" -o -name "*.dll" \) 2>/dev/null | sort); do
             bn=$(basename "$f")
             name="${bn%.*}"
             dir="DualSenseX_Reverse/Source/${name}"
@@ -46,12 +57,15 @@ jobs:
           done
 
       - name: Clean
-        run: find DualSenseX_Reverse/Source -type d -empty -delete 2>/dev/null; ls DualSenseX_Reverse/Source/
+        run: |
+          find DualSenseX_Reverse/Source -type d -empty -delete 2>/dev/null
+          echo "=== Final structure ==="
+          ls DualSenseX_Reverse/Source/
 
       - name: Commit
         run: |
           git config user.name "Nestor53top"
           git config user.email "varlamovnestor90@gmail.com"
           git add DualSenseX_Reverse/Source/
-          git diff --cached --quiet || git commit -m "Decompiled source from DualSenseX-Setup.exe"
+          git diff --cached --quiet || git commit -m "Decompiled source from DualSenseX-Setup.exe (deep extract)"
           git push
