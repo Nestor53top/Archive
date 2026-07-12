@@ -23,78 +23,57 @@ jobs:
           dotnet tool install --global ilspycmd
           sudo apt-get update && sudo apt-get install -y p7zip-full python3
 
-      - name: Extract nupkg using Python
+      - name: Extract nupkg with Python zipfile
         run: |
-          mkdir -p DualSenseX_Reverse/Extracted
+          mkdir -p DualSenseX_Reverse/Extracted/nupkg
           mkdir -p DualSenseX_Reverse/Source
           
           python3 << 'PYEOF'
-          import struct, os
+          import zipfile, struct, io, os
           
           with open("DualSenseX_Reverse/DualSenseX-Setup.exe", "rb") as f:
               data = f.read()
           
-          # Find all PK signatures (ZIP start)
-          pk_offsets = []
+          # Find the nupkg by searching for its name in the file
+          nupkg_name = b"DualSenseX-1.4.9-full.nupkg"
+          name_pos = data.find(nupkg_name)
+          print(f"nupkg name found at: {name_pos} (0x{name_pos:X})")
+          
+          # Find all PK local file headers and try each one
+          pk_sig = b'PK\x03\x04'
+          offsets = []
           i = 0
           while True:
-              idx = data.find(b'PK\x03\x04', i)
+              idx = data.find(pk_sig, i)
               if idx == -1:
                   break
-              pk_offsets.append(idx)
+              offsets.append(idx)
               i = idx + 1
           
-          print(f"Found {len(pk_offsets)} PK signatures")
+          print(f"Found {len(offsets)} PK local file headers")
           
-          # Find end of central directory to get the correct ZIP start
-          eocd_sig = b'PK\x05\x06'
-          eocd_pos = data.rfind(eocd_sig)
-          print(f"EOCD at: {eocd_pos} (0x{eocd_pos:X})")
-          
-          if eocd_pos != -1:
-              # Parse EOCD to get central dir offset
-              cd_offset = struct.unpack_from('<I', data, eocd_pos + 16)[0]
-              print(f"Central directory offset: {cd_offset} (0x{cd_offset:X})")
-              
-              # Find the PK signature before the central directory
-              best_offset = None
-              for off in reversed(pk_offsets):
-                  if off <= cd_offset:
-                      best_offset = off
+          # Try each offset to see if it's a valid nupkg
+          for off in offsets:
+              try:
+                  nupkg_data = data[off:]
+                  zf = zipfile.ZipFile(io.BytesIO(nupkg_data))
+                  names = zf.namelist()
+                  # Check if this looks like the nupkg (has lib/net45/DualSenseX.exe)
+                  if any('DualSenseX.exe' in n and 'net45' in n for n in names):
+                      print(f"Found nupkg at offset 0x{off:X} with {len(names)} files")
+                      for name in sorted(names):
+                          print(f"  {name}")
+                      # Extract it
+                      zf.extractall("DualSenseX_Reverse/Extracted/nupkg")
+                      print(f"Extracted to DualSenseX_Reverse/Extracted/nupkg")
                       break
-              
-              if best_offset is not None:
-                  print(f"Extracting ZIP from offset: {best_offset} (0x{best_offset:X})")
-                  nupkg_data = data[best_offset:]
-                  os.makedirs("DualSenseX_Reverse/Extracted", exist_ok=True)
-                  with open("DualSenseX_Reverse/Extracted/DualSenseX.nupkg", "wb") as out:
-                      out.write(nupkg_data)
-                  print(f"Written {len(nupkg_data)} bytes")
-              else:
-                  print("Could not find ZIP start before central directory")
+                  zf.close()
+              except Exception as e:
+                  continue
           else:
-              print("No EOCD found - trying all PK offsets")
-              for off in pk_offsets:
-                  print(f"  PK at 0x{off:X}")
+              print("Could not find valid nupkg")
           
           PYEOF
-
-      - name: Extract nupkg
-        run: |
-          if [ -f DualSenseX_Reverse/Extracted/DualSenseX.nupkg ]; then
-            echo "=== Extracting nupkg ==="
-            7z x DualSenseX_Reverse/Extracted/DualSenseX.nupkg -oDualSenseX_Reverse/Extracted/nupkg -y
-            echo "=== Contents ==="
-            find DualSenseX_Reverse/Extracted/nupkg \( -name "*.exe" -o -name "*.dll" \) | sort
-          else
-            echo "nupkg not found, trying all zip files"
-            find DualSenseX_Reverse/Extracted -name "*.zip" | while read f; do
-              echo "=== Extracting: $f ==="
-              mkdir -p DualSenseX_Reverse/Extracted/nupkg
-              7z x "$f" -oDualSenseX_Reverse/Extracted/nupkg -y
-            done
-            find DualSenseX_Reverse/Extracted/nupkg \( -name "*.exe" -o -name "*.dll" \) | sort
-          fi
 
       - name: Decompile all .NET assemblies
         run: |
