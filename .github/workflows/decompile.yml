@@ -3,6 +3,9 @@ name: Decompile DualSenseX
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   decompile:
     runs-on: ubuntu-latest
@@ -31,8 +34,9 @@ jobs:
           mkdir -p DualSenseX_Reverse/Source
           find DualSenseX_Reverse/Extracted -name "*.exe" -o -name "*.dll" | while read f; do
             echo "=== Trying: $f ==="
-            mkdir -p "DualSenseX_Reverse/Source/$(basename "$f" .exe)_src"
-            ilspycmd -p -o "DualSenseX_Reverse/Source/$(basename "$f" .exe)_src" "$f" 2>&1 || echo "FAILED: $f"
+            dir="DualSenseX_Reverse/Source/$(basename "$f" .exe)_src"
+            mkdir -p "$dir"
+            ilspycmd -p -o "$dir" "$f" 2>&1 || echo "FAILED: $f"
           done
 
       - name: Clean empty dirs
@@ -40,7 +44,7 @@ jobs:
           find DualSenseX_Reverse/Source -type d -empty -delete 2>/dev/null || true
           ls -la DualSenseX_Reverse/Source/
 
-      - name: Commit
+      - name: Commit and push
         run: |
           git config user.name "Nestor53top"
           git config user.email "varlamovnestor90@gmail.com"
