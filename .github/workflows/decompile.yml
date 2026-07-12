@@ -21,47 +21,26 @@ jobs:
       - name: Install tools
         run: |
           dotnet tool install --global ilspycmd
-          sudo apt-get update && sudo apt-get install -y p7zip-full binwalk file
+          sudo apt-get update && sudo apt-get install -y p7zip-full binwalk
 
-      - name: Analyze installer
-        run: |
-          echo "=== File type ==="
-          file DualSenseX_Reverse/DualSenseX-Setup.exe
-          
-          echo "=== Strings looking for .NET ==="
-          strings DualSenseX_Reverse/DualSenseX-Setup.exe | grep -i "\.dll\|\.exe\|mscorlib\|System\.\|DualSense" | head -30
-          
-          echo "=== 7z detailed list ==="
-          7z l DualSenseX_Reverse/DualSenseX-Setup.exe 2>/dev/null | head -30
-
-      - name: Extract with different methods
+      - name: Extract nupkg from installer
         run: |
           mkdir -p DualSenseX_Reverse/Extracted
-          
-          # Try Squirrel extraction (the installer might be Squirrel-based)
-          7z x DualSenseX_Reverse/DualSenseX-Setup.exe -oDualSenseX_Reverse/Extracted -y
-          
-          echo "=== Extracted files ==="
-          find DualSenseX_Reverse/Extracted -type f -exec ls -lh {} \;
-          
-          # Check if any of the extracted files are actually nested archives
-          find DualSenseX_Reverse/Extracted -type f | while read f; do
-            echo "--- $f ---"
-            file "$f"
-          done
-
-      - name: Try binwalk extraction
-        run: |
-          mkdir -p DualSenseX_Reverse/BinwalkExtracted
-          binwalk -e -d 3 -C DualSenseX_Reverse/BinwalkExtracted DualSenseX_Reverse/DualSenseX-Setup.exe 2>&1 || echo "binwalk failed"
-          
-          echo "=== Binwalk results ==="
-          find DualSenseX_Reverse/BinwalkExtracted -type f -name "*.exe" -o -name "*.dll" -o -name "*.cs" | head -30
-
-      - name: Decompile all found .NET assemblies
-        run: |
           mkdir -p DualSenseX_Reverse/Source
-          for f in $(find DualSenseX_Reverse/Extracted DualSenseX_Reverse/BinwalkExtracted \( -name "*.exe" -o -name "*.dll" \) 2>/dev/null); do
+          
+          # binwalk found a ZIP at offset 0xE3B707 (14923527)
+          echo "=== Extracting nupkg from setup.exe ==="
+          dd if=DualSenseX_Reverse/DualSenseX-Setup.exe bs=1 skip=14923527 of=DualSenseX_Reverse/Extracted/DualSenseX.nupkg
+          
+          echo "=== Extracting nupkg ==="
+          7z x DualSenseX_Reverse/Extracted/DualSenseX.nupkg -oDualSenseX_Reverse/Extracted/nupkg -y
+          
+          echo "=== Contents of nupkg ==="
+          find DualSenseX_Reverse/Extracted/nupkg -type f -name "*.exe" -o -name "*.dll" | sort
+
+      - name: Decompile all .NET assemblies
+        run: |
+          for f in $(find DualSenseX_Reverse/Extracted/nupkg \( -name "*.exe" -o -name "*.dll" \) | sort); do
             bn=$(basename "$f")
             name="${bn%.*}"
             dir="DualSenseX_Reverse/Source/${name}"
