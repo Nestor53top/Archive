@@ -18,50 +18,40 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Install tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y p7zip-full
-          dotnet tool install --global ilspycmd
-          dotnet tool install --global ICSharpCode.Decompiler.Console
+      - name: Install ilspycmd
+        run: dotnet tool install --global ilspycmd
+
+      - name: Install 7zip
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
 
       - name: Extract installer
         run: |
           mkdir -p DualSenseX_Reverse/Extracted
-          cd DualSenseX_Reverse
-          7z x DualSenseX-Setup.exe -oExtracted -y
+          7z x DualSenseX_Reverse/DualSenseX-Setup.exe -oDualSenseX_Reverse/Extracted -y
 
-      - name: Find and list .NET assemblies
+      - name: List extracted
         run: |
-          echo "=== All .exe files ==="
-          find DualSenseX_Reverse/Extracted -name "*.exe" -exec ls -lh {} \;
-          echo ""
-          echo "=== All .dll files ==="
-          find DualSenseX_Reverse/Extracted -name "*.dll" -exec ls -lh {} \;
-          
+          find DualSenseX_Reverse/Extracted -name "*.exe" -o -name "*.dll" | sort
+
       - name: Decompile all
         run: |
           mkdir -p DualSenseX_Reverse/Source
-          find DualSenseX_Reverse/Extracted \( -name "*.exe" -o -name "*.dll" \) -exec sh -c '
-            for f; do
-              bn=$(basename "$f")
-              name="${bn%.*}"
-              dir="DualSenseX_Reverse/Source/${name}"
-              mkdir -p "$dir"
-              echo "=== Decompiling: $f ==="
-              ilspycmd -p -o "$dir" "$f" 2>&1 && echo "OK: $bn" || echo "FAILED: $bn"
-            done
-          ' _ {} +
+          for f in $(find DualSenseX_Reverse/Extracted \( -name "*.exe" -o -name "*.dll" \) | sort); do
+            bn=$(basename "$f")
+            name="${bn%.*}"
+            dir="DualSenseX_Reverse/Source/${name}"
+            mkdir -p "$dir"
+            echo "=== Decompiling: $f ==="
+            ilspycmd -p -o "$dir" "$f" 2>&1 && echo "OK" || echo "FAILED"
+          done
 
-      - name: Remove empty dirs
-        run: |
-          find DualSenseX_Reverse/Source -type d -empty -delete 2>/dev/null || true
-          echo "=== Source structure ==="
-          ls DualSenseX_Reverse/Source/
+      - name: Clean
+        run: find DualSenseX_Reverse/Source -type d -empty -delete 2>/dev/null; ls DualSenseX_Reverse/Source/
 
-      - name: Commit and push
+      - name: Commit
         run: |
           git config user.name "Nestor53top"
           git config user.email "varlamovnestor90@gmail.com"
           git add DualSenseX_Reverse/Source/
-          git diff --cached --quiet || git commit -m "Add decompiled source from DualSenseX-Setup.exe"
+          git diff --cached --quiet || git commit -m "Decompiled source from DualSenseX-Setup.exe"
           git push
